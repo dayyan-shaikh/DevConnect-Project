@@ -10,11 +10,11 @@ import { ProfileModule } from '../profile/profile.module';
   imports: [
     MongooseModule.forFeature([{ name: User.name, schema: UserSchema }]),
     JwtModule.register({
-      global: true, // 👈 makes JwtService available globally
+      global: true,
       secret: process.env.JWT_SECRET || 'supersecretkey',
       signOptions: { expiresIn: '1d' },
     }),
-    ProfileModule, // 👈 so AuthService can inject ProfileService
+    ProfileModule,
   ],
   controllers: [AuthController],
   providers: [AuthService],
