@@ -1,0 +1,123 @@
+'use client';
+
+import React, { createContext, useContext, useEffect, useRef, useCallback } from 'react';
+import type { ReactNode } from 'react';
+import { io, Socket } from 'socket.io-client';
+import type { AppSocket } from '../types/socket';
+
+interface WebSocketMessage {
+  type: string;
+  data: {
+    senderId: string;
+    receiverId: string;
+    content: string;
+    _tempId?: string;
+    _isNew?: boolean;
+    _timestamp?: number;
+  };
+}
+
+interface WebSocketContextType {
+  socket: Socket | null;
+  isConnected: boolean;
+  sendMessage: (message: WebSocketMessage | any) => void;
+  identify: (userId: string) => void;
+}
+
+const WebSocketContext = createContext<WebSocketContextType>({
+  socket: null,
+  isConnected: false,
+  sendMessage: () => {},
+  identify: () => {},
+});
+
+export const useWebSocket = () => useContext(WebSocketContext);
+
+export const WebSocketProvider = ({ children }: { children: ReactNode }) => {
+  const [isConnected, setIsConnected] = React.useState(false);
+  const socketRef = useRef<Socket | null>(null);
+  const reconnectAttempts = useRef(0);
+  const maxReconnectAttempts = 5;
+  const reconnectInterval = 3000; // 3 seconds
+
+  const connect = () => {
+    // Use Vite environment variable or fallback to default
+    const wsUrl = import.meta.env.VITE_WEBSOCKET_URL || 'http://localhost:3000';
+    
+    try {
+      const socket = io(wsUrl, {
+        transports: ['websocket', 'polling'],
+        autoConnect: true,
+      });
+      
+      socket.on('connect', () => {
+          setIsConnected(true);
+        reconnectAttempts.current = 0;
+      });
+      
+      socket.on('disconnect', () => {
+          setIsConnected(false);
+        attemptReconnect();
+      });
+      
+      socket.on('connect_error', (error) => {
+        attemptReconnect();
+      });
+      
+      socketRef.current = socket;
+    } catch (error) {
+      console.error('Failed to create Socket.IO connection:', error);
+    }
+  };
+
+  const attemptReconnect = () => {
+    if (reconnectAttempts.current < maxReconnectAttempts) {
+      reconnectAttempts.current += 1;
+      setTimeout(connect, reconnectInterval);
+    } else {
+      console.error('Max reconnection attempts reached');
+    }
+  };
+
+  const sendMessage = useCallback((message: WebSocketMessage | any) => {
+    if (socketRef.current?.connected) {
+      // If it's already in the wrapped format, send as is
+      if (message.type && message.data) {
+        socketRef.current.emit('sendMessage', message);
+      } else {
+        // For backward compatibility, wrap the message
+        socketRef.current.emit('sendMessage', {
+          type: 'chat_message',
+          data: message
+        });
+      }
+    } else {
+    }
+  }, []);
+
+  const identify = (userId: string) => {
+    if (socketRef.current && socketRef.current.connected) {
+      socketRef.current.emit('identify', userId);
+    } else {
+      console.error('Socket.IO is not connected');
+    }
+  };
+
+  useEffect(() => {
+    connect();
+
+    return () => {
+      if (socketRef.current) {
+        socketRef.current.disconnect();
+      }
+    };
+  }, []);
+
+  return (
+    <WebSocketContext.Provider value={{ socket: socketRef.current, isConnected, sendMessage, identify }}>
+      {children}
+    </WebSocketContext.Provider>
+  );
+};
+
+export default WebSocketContext;
