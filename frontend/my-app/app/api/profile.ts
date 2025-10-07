@@ -1,7 +1,10 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import axiosInstance from "./axios";
 
-// Profile data types
+// ----------------------
+// Profile Data Types
+// ----------------------
+
 export interface Education {
   id?: string;
   degree: string;
@@ -60,7 +63,10 @@ export interface UpdateProfileDto {
   socialLinks?: SocialLinks;
 }
 
-// API functions
+// ----------------------
+// API Functions
+// ----------------------
+
 const profileApi = {
   getProfile: async (profileId: string): Promise<Profile> => {
     const response = await axiosInstance.get(`/profile/${profileId}`);
@@ -69,20 +75,19 @@ const profileApi = {
 
   getAllProfiles: async (cursor?: string, limit: number = 25): Promise<PaginatedProfilesResponse> => {
     const params = new URLSearchParams();
-    if (cursor) params.append('cursor', cursor);
-    params.append('limit', limit.toString());
-    
+    if (cursor) params.append("cursor", cursor);
+    params.append("limit", limit.toString());
+
     const response = await axiosInstance.get(`/profile?${params.toString()}`);
     return response.data;
   },
 
   getProfileByUserId: async (userId: string): Promise<Profile> => {
-    // First try to get existing profile by user_id
     try {
       const response = await axiosInstance.get(`/profile/user/${userId}`);
       return response.data;
     } catch (error) {
-      // If profile doesn't exist, create one first
+      // If profile doesn't exist yet, create one
       await profileApi.createProfile(userId);
       const response = await axiosInstance.get(`/profile/user/${userId}`);
       return response.data;
@@ -98,9 +103,31 @@ const profileApi = {
     const response = await axiosInstance.post(`/profile/${userId}`);
     return response.data;
   },
+
+  // ✅ Updated for Cloudinary integration
+  uploadAvatar: async (profileId: string, file: File): Promise<Profile> => {
+    const formData = new FormData();
+    formData.append("file", file);
+
+    const response = await axiosInstance.post(
+      `/profile/${profileId}/avatar`,
+      formData,
+      {
+        headers: {
+          "Content-Type": "multipart/form-data",
+        },
+      }
+    );
+
+    // Backend returns updated profile directly
+    return response.data;
+  },
 };
 
-// React Query hooks
+// ----------------------
+// React Query Hooks
+// ----------------------
+
 export const useProfile = (profileId: string) => {
   return useQuery({
     queryKey: ["profile", profileId],
@@ -111,9 +138,8 @@ export const useProfile = (profileId: string) => {
 
 export const useAllProfiles = () => {
   return useQuery({
-    queryKey: ['profiles'],
+    queryKey: ["profiles"],
     queryFn: async () => {
-      // Fetch all profiles by handling pagination internally
       let allProfiles: Profile[] = [];
       let cursor: string | null = null;
       let hasNextPage = true;
@@ -143,7 +169,7 @@ export const useUpdateProfile = (
   onError?: (error: any) => void
 ) => {
   const queryClient = useQueryClient();
-  
+
   return useMutation({
     mutationFn: ({ profileId, data }: { profileId: string; data: UpdateProfileDto }) =>
       profileApi.updateProfile(profileId, data),
@@ -162,6 +188,24 @@ export const useCreateProfile = (
   return useMutation({
     mutationFn: (userId: string) => profileApi.createProfile(userId),
     onSuccess,
+    onError,
+  });
+};
+
+// ✅ Optional: separate hook for avatar upload
+export const useUploadAvatar = (
+  onSuccess?: (data: Profile) => void,
+  onError?: (error: any) => void
+) => {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: ({ profileId, file }: { profileId: string; file: File }) =>
+      profileApi.uploadAvatar(profileId, file),
+    onSuccess: (data) => {
+      queryClient.invalidateQueries({ queryKey: ["profile", data.id] });
+      onSuccess?.(data);
+    },
     onError,
   });
 };

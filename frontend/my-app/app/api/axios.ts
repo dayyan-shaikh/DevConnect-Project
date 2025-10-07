@@ -1,7 +1,7 @@
 import axios from "axios";
-import type { AxiosInstance} from "axios"
+import type { AxiosInstance } from "axios";
 
-const axiosInstance: AxiosInstance = axios.create({
+export const axiosInstance: AxiosInstance = axios.create({
   baseURL: "http://localhost:3000", // NestJS backend
   headers: {
     "Content-Type": "application/json",

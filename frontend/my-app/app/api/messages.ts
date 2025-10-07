@@ -27,6 +27,7 @@ export interface CreateMessagePayload {
 export interface ConversationResponse {
   partnerId: string;
   partnerName: string;
+  partnerAvatar?: string;
   lastMessage: Message;
 }
 

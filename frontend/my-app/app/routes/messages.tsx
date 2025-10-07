@@ -2,8 +2,9 @@ import { useState, useEffect } from "react";
 import { useSearchParams } from "react-router";
 import { AuthenticatedRoute } from "../components/ProtectedRoute";
 import { Navbar } from "../components/Navbar";
-import { MessageCircle, Search, MoreVertical, Send, ArrowLeft } from "lucide-react";
+import { MessageCircle, Search, MoreVertical, Send, ArrowLeft, User } from "lucide-react";
 import { useGetConversations, useGetConversation, useSendMessage, type Message, type ConversationResponse } from "../api/messages";
+import { useProfileByUserId } from "../api/profile";
 import { useWebSocket } from "../contexts/WebSocketContext";
 import { getCurrentUserId } from "../lib/auth";
 import { toast } from "sonner";
@@ -56,6 +57,11 @@ export default function Messages() {
     currentUserId || '', 
     selectedConversation || '', 
     !!selectedConversation
+  );
+  
+  // Get the current conversation's profile for avatar
+  const { data: currentConversationProfile } = useProfileByUserId(
+    selectedConversation || ''
   );
 
   // Get current user ID
@@ -181,8 +187,18 @@ export default function Messages() {
                         }`}
                       >
                         <div className="flex items-center gap-3">
-                          <div className="w-10 h-10 rounded-full bg-gradient-to-br from-purple-500 to-blue-500 flex items-center justify-center text-white font-semibold">
-                            {getInitials(conv.partnerName) || conv.partnerId?.charAt(0).toUpperCase() || 'U'}
+                          <div className="relative w-10 h-10 flex-shrink-0">
+                            {conv.partnerAvatar ? (
+                              <img 
+                                src={conv.partnerAvatar} 
+                                alt={conv.partnerName} 
+                                className="w-full h-full rounded-full object-cover"
+                              />
+                            ) : (
+                              <div className="w-full h-full rounded-full bg-gradient-to-br from-purple-500 to-blue-500 flex items-center justify-center text-white font-semibold">
+                                {getInitials(conv.partnerName) || conv.partnerId?.charAt(0).toUpperCase() || 'U'}
+                              </div>
+                            )}
                           </div>
                           <div className="flex-1 min-w-0">
                             <div className="flex items-center justify-between">
@@ -221,8 +237,18 @@ export default function Messages() {
                       >
                         <ArrowLeft className="w-5 h-5 text-white" />
                       </button>
-                      <div className="w-10 h-10 rounded-full bg-gradient-to-br from-purple-500 to-blue-500 flex items-center justify-center text-white font-semibold">
-                        {getInitials(conversations?.find(c => c.partnerId === selectedConversation)?.partnerName)}
+                      <div className="relative w-10 h-10 flex-shrink-0">
+                        {currentConversationProfile?.avatar ? (
+                          <img 
+                            src={currentConversationProfile.avatar} 
+                            alt={conversations?.find(c => c.partnerId === selectedConversation)?.partnerName} 
+                            className="w-full h-full rounded-full object-cover"
+                          />
+                        ) : (
+                          <div className="w-full h-full rounded-full bg-gradient-to-br from-purple-500 to-blue-500 flex items-center justify-center text-white font-semibold">
+                            {getInitials(conversations?.find(c => c.partnerId === selectedConversation)?.partnerName)}
+                          </div>
+                        )}
                       </div>
                       <div>
                         <h2 className="font-semibold text-white">
@@ -240,8 +266,23 @@ export default function Messages() {
                     {conversationMessages?.map((message) => (
                       <div
                         key={message._id}
-                        className={`flex ${message.senderId === currentUserId ? 'justify-end' : 'justify-start'}`}
+                        className={`flex items-end gap-2 ${message.senderId === currentUserId ? 'flex-row-reverse' : 'flex-row'}`}
                       >
+                        {message.senderId !== currentUserId && (
+                          <div className="w-8 h-8 rounded-full overflow-hidden flex-shrink-0">
+                            {currentConversationProfile?.avatar ? (
+                              <img 
+                                src={currentConversationProfile.avatar} 
+                                alt={conversations?.find(c => c.partnerId === selectedConversation)?.partnerName} 
+                                className="w-full h-full object-cover"
+                              />
+                            ) : (
+                              <div className="w-full h-full bg-gradient-to-br from-purple-500 to-blue-500 flex items-center justify-center text-white text-xs">
+                                {getInitials(conversations?.find(c => c.partnerId === selectedConversation)?.partnerName) || 'U'}
+                              </div>
+                            )}
+                          </div>
+                        )}
                         <div
                           className={`max-w-xs lg:max-w-md px-4 py-2 rounded-lg ${
                             message.senderId === currentUserId
@@ -250,8 +291,8 @@ export default function Messages() {
                           }`}
                         >
                           <p className="text-sm">{message.content}</p>
-                          <p className="text-xs opacity-70 mt-1">
-                            {new Date(message.createdAt).toLocaleTimeString()}
+                          <p className="text-xs opacity-70 mt-1 text-right">
+                            {new Date(message.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
                           </p>
                         </div>
                       </div>

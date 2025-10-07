@@ -4,12 +4,14 @@ import { Model, Types, PipelineStage } from 'mongoose';
 import { Message, MessageDocument } from './schemas/message.schema';
 import { CreateMessageDto } from './dto/create-message.dto';
 import { User } from '../auth/schemas/user.schema';
+import { Profile } from '../profile/schemas/profile.schema';
 
 @Injectable()
 export class MessageService {
   constructor(
     @InjectModel(Message.name) private messageModel: Model<MessageDocument>,
     @InjectModel(User.name) private userModel: Model<User>,
+    @InjectModel(Profile.name) private profileModel: Model<Profile>,
   ) {}
 
   /**
@@ -61,6 +63,12 @@ export class MessageService {
    * Returns most recent message for each conversation partner.
    */
   async getConversationsForUser(userId: string, limit = 50) {
+    // First, get the user document to ensure we have the correct _id
+    const currentUser = await this.userModel.findOne({ user_id: userId }).lean();
+    if (!currentUser) {
+      throw new NotFoundException('User not found');
+    }
+
     const pipeline: PipelineStage[] = [
       {
         $match: {
@@ -76,6 +84,7 @@ export class MessageService {
           receiverId: 1,
           content: 1,
           createdAt: 1,
+          isRead: 1,
           partner: {
             $cond: [
               { $eq: ['$senderId', userId] },
@@ -98,24 +107,46 @@ export class MessageService {
 
     const results = await this.messageModel.aggregate(pipeline).exec();
     
-    // Get all partner user IDs
-    const partnerIds = results.map(r => r._id);
+    if (results.length === 0) {
+      return [];
+    }
     
-    // Fetch all partner users in one query
-    const partners = await this.userModel.find(
-      { user_id: { $in: partnerIds } },
-      { user_id: 1, name: 1 }
-    ).lean();
+    // Get all partner user IDs
+    const partnerUserIds = results.map(r => r._id);
+    
+    // Fetch all partner users and their profiles in parallel
+    const [users, profiles] = await Promise.all([
+      this.userModel.find(
+        { user_id: { $in: partnerUserIds } },
+        { user_id: 1, name: 1, _id: 0 }
+      ).lean(),
+      this.profileModel.find(
+        { user_id: { $in: partnerUserIds } },
+        { user_id: 1, avatar: 1, _id: 0 }
+      ).lean()
+    ]);
+    
+    // Create a map of user_id to profile, prioritizing non-empty avatars
+    const profileMap = new Map();
+    profiles.forEach(profile => {
+      if (!profileMap.has(profile.user_id) || 
+          (profile.avatar && !profileMap.get(profile.user_id).avatar)) {
+        profileMap.set(profile.user_id, profile);
+      }
+    });
     
     // Create a map of user_id to user data for quick lookup
-    const partnerMap = new Map(partners.map(user => [user.user_id, user]));
+    const userMap = new Map(users.map(user => [user.user_id, user]));
     
     // Map the results with partner information
     return results.map((r) => {
-      const partner = partnerMap.get(r._id);
+      const partner = userMap.get(r._id);
+      const partnerProfile = profileMap.get(r._id);
+      
       return {
-        partnerId: r._id, // Using MongoDB _id as the identifier
+        partnerId: r._id,
         partnerName: partner?.name || 'Unknown User',
+        partnerAvatar: partnerProfile?.avatar || '',
         lastMessage: r.lastMessage,
       };
     });
