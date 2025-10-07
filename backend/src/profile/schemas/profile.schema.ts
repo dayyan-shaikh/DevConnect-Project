@@ -69,7 +69,6 @@ export class Profile {
   @Prop({ required: true })
   name: string;
 
-  // ✅ New fields
   @Prop()
   title?: string; // Professional title
 
@@ -78,6 +77,9 @@ export class Profile {
 
   @Prop()
   avatar?: string; // Profile picture URL
+
+  @Prop()
+  avatarPublicId?: string;
 
   @Prop()
   experience?: string; // "4+ years" or similar

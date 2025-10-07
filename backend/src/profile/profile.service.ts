@@ -13,7 +13,9 @@ export class ProfileService {
     @InjectModel(User.name) private userModel: Model<UserDocument>,
   ) {}
 
-  // Create profile right after registration
+  /**
+   * Create a profile right after registration
+   */
   async createProfile(user_id: string): Promise<Profile> {
     const user = await this.userModel.findOne({ user_id });
     if (!user) throw new NotFoundException('User not found');
@@ -26,32 +28,34 @@ export class ProfileService {
       skills: [],
       projects: [],
       socialLinks: {},
+      avatar: '',
+      avatarPublicId: '',
     });
 
     return newProfile.save();
   }
 
+  /**
+   * Get all profiles with cursor pagination
+   */
   async getProfiles(cursor?: string, limit: number = 25) {
     const query: any = {};
-    
-    // If cursor provided, only get profiles with _id greater than cursor
+
     if (cursor) {
-      // Validate cursor is a valid ObjectId
       if (!Types.ObjectId.isValid(cursor)) {
         throw new Error('Invalid cursor format');
       }
       query._id = { $gt: new Types.ObjectId(cursor) };
     }
 
-    // Fetch profiles sorted by _id
     const profiles = await this.profileModel
       .find(query)
-      .sort({ _id: 1 }) // ascending order
-      .limit(limit + 1); // fetch one extra to check next cursor
+      .sort({ _id: 1 })
+      .limit(limit + 1);
 
     let nextCursor: string | null = null;
     if (profiles.length > limit) {
-      const nextProfile = profiles.pop(); // remove extra doc
+      const nextProfile = profiles.pop();
       nextCursor = nextProfile?._id?.toString() || null;
     }
 
@@ -62,38 +66,65 @@ export class ProfileService {
     };
   }
 
+  /**
+   * Get profile by id (UUID or ObjectId)
+   */
   async getProfile(id: string): Promise<Profile> {
-    // First try to find by id field (UUID)
     let profile = await this.profileModel.findOne({ id }).exec();
-    
-    // If not found by UUID, try by _id (ObjectId)
+
     if (!profile) {
       try {
         profile = await this.profileModel.findById(id).exec();
       } catch (error) {
-        // Ignore invalid ObjectId format errors
+        // ignore invalid ObjectId format
       }
     }
-    
+
     if (!profile) throw new NotFoundException('Profile not found');
     return profile.toObject();
   }
 
+  /**
+   * Get profile by user_id
+   */
   async getProfileByUserId(user_id: string): Promise<Profile> {
     const profile = await this.profileModel.findOne({ user_id });
     if (!profile) throw new NotFoundException('Profile not found');
     return profile;
   }
 
-  async updateProfile(
-    id: string,
-    dto: UpdateProfileDto,
-  ): Promise<Profile> {
+  /**
+   * Update profile details
+   */
+  async updateProfile(id: string, dto: UpdateProfileDto): Promise<Profile> {
     const updated = await this.profileModel.findOneAndUpdate(
       { id },
       { $set: dto },
       { new: true },
     );
+    if (!updated) throw new NotFoundException('Profile not found');
+    return updated;
+  }
+
+  /**
+   * Update avatar (used after Cloudinary upload)
+   */
+  async updateAvatar(
+    profileId: string,
+    avatarUrl: string,
+    avatarPublicId: string,
+  ): Promise<Profile> {
+    const updated = await this.profileModel.findOneAndUpdate(
+      { id: profileId },
+      {
+        $set: {
+          avatar: avatarUrl,
+          avatarPublicId,
+        },
+      },
+      { new: true },
+    );
+
     if (!updated) throw new NotFoundException('Profile not found');
     return updated;
   }
