@@ -9,7 +9,11 @@ import {
   UploadedFile,
   UseInterceptors,
   BadRequestException,
+  UseGuards,
+  Request,
+  UnauthorizedException,
 } from '@nestjs/common';
+import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { FileInterceptor } from '@nestjs/platform-express';
 import { memoryStorage } from 'multer';
 import { ProfileService } from './profile.service';
@@ -23,17 +27,13 @@ export class ProfileController {
     private readonly cloudinaryService: CloudinaryService,
   ) {}
 
-  /**
-   * Create Profile automatically when user registers.
-   */
+
   @Post(':user_id')
   async createProfile(@Param('user_id') user_id: string) {
     return this.profileService.createProfile(user_id);
   }
 
-  /**
-   * Get all profiles (cursor-based pagination)
-   */
+
   @Get()
   async getProfiles(
     @Query('cursor') cursor?: string,
@@ -42,25 +42,18 @@ export class ProfileController {
     return this.profileService.getProfiles(cursor, limit);
   }
 
-  /**
-   * Get profile by profile_id
-   */
+
   @Get(':profile_id')
   async getProfile(@Param('profile_id') profile_id: string) {
     return this.profileService.getProfile(profile_id);
   }
 
-  /**
-   * Get profile by user_id
-   */
+
   @Get('user/:user_id')
   async getProfileByUserId(@Param('user_id') user_id: string) {
     return this.profileService.getProfileByUserId(user_id);
   }
 
-  /**
-   * Update profile info
-   */
   @Put(':profile_id')
   async updateProfile(
     @Param('profile_id') profile_id: string,
@@ -69,8 +62,8 @@ export class ProfileController {
     return this.profileService.updateProfile(profile_id, dto);
   }
 
-  // Upload avatar (profile image) to Cloudinary
   @Post(':profile_id/avatar')
+  @UseGuards(JwtAuthGuard)
   @UseInterceptors(
     FileInterceptor('file', {
       storage: memoryStorage(),
@@ -86,19 +79,20 @@ export class ProfileController {
   async uploadAvatar(
     @Param('profile_id') profile_id: string,
     @UploadedFile() file: Express.Multer.File,
+    @Request() req: any,
   ) {
     if (!file) throw new BadRequestException('No file provided');
 
-    // Get the profile to check & remove existing avatar
     const profile = await this.profileService.getProfile(profile_id);
     if (!profile) throw new BadRequestException('Profile not found');
+    
+    if (profile.user_id !== req.user.userId) {
+      throw new UnauthorizedException('You can only update your own profile picture');
+    }
 
-    // Delete old avatar from Cloudinary if exists
     if (profile.avatarPublicId) {
       await this.cloudinaryService.delete(profile.avatarPublicId).catch(() => null);
     }
-
-    // Upload new image to Cloudinary
     const uploadResult = await this.cloudinaryService.uploadImageFromBuffer(file.buffer, {
       folder: 'devconnect/avatars',
       public_id: `profile_${profile_id}`,

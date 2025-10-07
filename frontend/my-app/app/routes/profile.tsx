@@ -136,17 +136,34 @@ export default function Profile() {
               <div className="bg-gradient-to-r from-purple-600/20 to-blue-600/20 backdrop-blur-sm border border-white/10 rounded-3xl p-8">
                 <div className="flex flex-col md:flex-row items-start gap-6">
 
-                  {/* ✅ Avatar Upload */}
-                  <div className="relative group">
-                    <AvatarUpload
-                      profileId={profileData.id}
-                      currentAvatar={profileData.avatar}
-                      name={profileData.name}
-                      onUploadSuccess={handleAvatarUploadSuccess}
-                      className="cursor-pointer"
-                      size="lg"
-                    />
-                  </div>
+                  {isCurrentUser ? (
+                    <div className="relative group">
+                      <AvatarUpload
+                        profileId={profileData.id}
+                        currentAvatar={profileData.avatar}
+                        name={profileData.name}
+                        onUploadSuccess={handleAvatarUploadSuccess}
+                        className="cursor-pointer"
+                        size="lg"
+                      />
+                    </div>
+                  ) : (
+                    <div className="relative">
+                      <div className="w-32 h-32 rounded-full bg-gradient-to-br from-purple-600/20 to-blue-600/20 flex items-center justify-center overflow-hidden border-2 border-white/10">
+                        {profileData.avatar ? (
+                          <img
+                            src={profileData.avatar}
+                            alt={profileData.name}
+                            className="w-full h-full object-cover"
+                          />
+                        ) : (
+                          <span className="text-4xl font-bold text-white/60">
+                            {profileData.name?.charAt(0).toUpperCase() || 'U'}
+                          </span>
+                        )}
+                      </div>
+                    </div>
+                  )}
 
                   {/* Profile Info */}
                   <div className="flex-1">
