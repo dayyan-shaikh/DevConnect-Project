@@ -6,7 +6,7 @@ async function bootstrap() {
 
   // Enable CORS for your frontend
   app.enableCors({
-    origin: 'http://localhost:5173', // React frontend URL
+    origin: ["http://localhost:5173", "https://your-frontend.vercel.app"], // React frontend URL
     credentials: true, // if you want cookies or auth headers
   });
 
