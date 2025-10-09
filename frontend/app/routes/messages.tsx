@@ -41,6 +41,12 @@ export default function Messages() {
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
   const [currentUserId, setCurrentUserId] = useState<string | null>(null);
+
+  // Get current user ID on component mount
+  useEffect(() => {
+    const userId = getCurrentUserId();
+    setCurrentUserId(userId);
+  }, []);
   const [selectedConversation, setSelectedConversation] = useState<string | null>(null);
   const [messageText, setMessageText] = useState('');
   const [searchQuery, setSearchQuery] = useState('');
@@ -66,17 +72,38 @@ export default function Messages() {
     !!selectedConversation
   );
 
-  // Scroll to bottom of messages
-  const scrollToBottom = () => {
-    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+  // Scroll to bottom of messages (instant to avoid animation/lag)
+  const scrollToBottom = (instant = true) => {
+    if (messagesEndRef.current) {
+      messagesEndRef.current.scrollIntoView({ behavior: 'auto' });
+    }
   };
   
+  // Scroll to bottom when messages change or conversation changes
   useEffect(() => {
-    scrollToBottom();
-  }, [conversationMessages]);
+    // Use requestAnimationFrame to ensure DOM is updated
+    const timer = setTimeout(() => {
+      scrollToBottom(true);
+    }, 0);
+    return () => clearTimeout(timer);
+  }, [conversationMessages, selectedConversation]);
+
+  // Send message mutation with proper TypeScript types
+  const { mutate: sendMessage } = useSendMessage(
+    (sentMessage: Message) => {
+      // Message sent successfully
+      console.log('Message sent:', sentMessage);
+      refetchConversation();
+      refetchConversations();
+    },
+    (error: Error) => {
+      console.error('Error sending message:', error);
+      toast.error('Failed to send message');
+    }
+  );
 
   // Handle sending a message
-  const handleSendMessage = () => {
+  const handleSendMessage = async () => {
     if (!messageText.trim() || !currentUserId || !selectedConversation) return;
     
     const messageData = {
@@ -85,9 +112,37 @@ export default function Messages() {
       content: messageText.trim(),
     };
     
-    // TODO: Implement message sending logic
-    console.log('Sending message:', messageData);
+    // Clear the input immediately for better UX
     setMessageText('');
+    
+    try {
+      // Try WebSocket first if available
+      if (isConnected && typeof sendSocketMessage === 'function') {
+        console.log('Sending message via WebSocket:', messageData);
+        // Send the message data directly as the WebSocket message
+        // The backend expects the message fields at the root level
+        sendSocketMessage({
+          type: 'chat_message',
+          ...messageData  // Spread the message data at the root level
+        });
+      } else {
+        // Fallback to HTTP if WebSocket is not connected
+        console.log('WebSocket not available, falling back to HTTP');
+        await sendMessage(messageData);
+      }
+      
+      // Refresh conversation after a short delay
+      setTimeout(() => {
+        refetchConversation();
+        refetchConversations();
+      }, 100);
+      
+    } catch (error) {
+      console.error('Error sending message:', error);
+      toast.error('Failed to send message');
+      // Restore the message if sending failed
+      setMessageText(messageData.content);
+    }
   };
 
   // Filter conversations based on search query
@@ -99,19 +154,56 @@ export default function Messages() {
   // Get current conversation profile
   const { data: currentConversationProfile } = useProfileByUserId(selectedConversation || '');
 
-  // Set up WebSocket connection
+  // Set up WebSocket connection and message handling
   useEffect(() => {
-    if (currentUserId) {
-      identify(currentUserId);
+    if (!socket || !currentUserId) {
+      console.log('WebSocket not ready or user not authenticated');
+      return;
     }
-  }, [currentUserId, identify]);
+
+    // Identify user to WebSocket server
+    identify(currentUserId);
+
+    // Handle incoming messages
+    const handleIncomingMessage = (message: Message) => {
+      console.log('Received message:', message);
+      if (
+        message.senderId === selectedConversation || 
+        message.receiverId === selectedConversation
+      ) {
+        // Refresh the conversation if it's the active one
+        refetchConversation();
+      }
+      // Always refresh conversations list to update last message
+      refetchConversations();
+    };
+
+    // Listen for new messages
+    socket.on('message', handleIncomingMessage);
+    socket.on('new_message', handleIncomingMessage); // For backward compatibility
+
+    // Clean up event listeners on unmount
+    return () => {
+      socket.off('message', handleIncomingMessage);
+      socket.off('new_message', handleIncomingMessage);
+    };
+  }, [socket, currentUserId, selectedConversation, refetchConversation, refetchConversations, identify]);
 
   // Set initial conversation from URL params
   useEffect(() => {
     const chatWith = searchParams.get('chat');
     if (chatWith) {
       setSelectedConversation(chatWith);
-      if (isMobile) setIsMobileMenuOpen(false);
+      if (isMobile) {
+        // Close menu after a small delay to allow the chat to render
+        const timer = setTimeout(() => {
+          setIsMobileMenuOpen(false);
+        }, 50);
+        return () => clearTimeout(timer);
+      }
+    } else if (isMobile) {
+      // If no chat param and on mobile, ensure menu is open
+      setIsMobileMenuOpen(true);
     }
   }, [searchParams, isMobile]);
 
@@ -119,6 +211,10 @@ export default function Messages() {
   const handleBackToConversations = () => {
     setSelectedConversation(null);
     setIsMobileMenuOpen(true);
+    // Update URL to remove chat param
+    const newSearchParams = new URLSearchParams(searchParams);
+    newSearchParams.delete('chat');
+    setSearchParams(newSearchParams);
   };
 
   if (!currentUserId) {
@@ -138,10 +234,10 @@ export default function Messages() {
     <>
       <Navbar />
       <AuthenticatedRoute>
-        <div className="min-h-screen w-full bg-gradient-to-br from-slate-900 via-purple-900 to-slate-900">
-          <div className="w-full h-screen pt-16 flex">
+        <div className="h-screen w-full bg-gradient-to-br from-slate-900 via-purple-900 to-slate-900 flex flex-col">
+          <main className="flex-1 pt-16 flex min-h-0 overflow-hidden">
             {/* Conversation List */}
-            <div className={`${isMobile ? (isMobileMenuOpen ? 'flex' : 'hidden') : 'flex'} w-full md:w-1/3 bg-white/5 backdrop-blur-sm border-r border-white/10 flex-col`}>
+            <div className={`${isMobile ? (isMobileMenuOpen ? 'flex' : 'hidden') : 'flex'} w-full md:w-1/3 lg:w-1/4 bg-white/5 border-r border-white/10 flex-col min-h-0`}>
               <div className="p-4 border-b border-white/10">
                 <div className="flex items-center justify-between mb-4">
                   <h1 className="text-xl font-bold text-white">Messages</h1>
@@ -159,6 +255,7 @@ export default function Messages() {
                     placeholder="Search conversations..."
                     value={searchQuery}
                     onChange={(e) => setSearchQuery(e.target.value)}
+                    aria-label="Search conversations"
                     className="w-full pl-10 pr-4 py-2 bg-white/10 border border-white/20 rounded-lg text-white text-sm placeholder-gray-400 focus:outline-none focus:border-purple-500"
                   />
                 </div>
@@ -179,7 +276,7 @@ export default function Messages() {
                           setSelectedConversation(conv.partnerId);
                           if (isMobile) setIsMobileMenuOpen(false);
                         }}
-                        className={`p-3 rounded-lg cursor-pointer transition-colors ${
+                        className={`p-3 rounded-lg cursor-pointer ${
                           selectedConversation === conv.partnerId
                             ? 'bg-purple-600/20 border border-purple-500/30'
                             : 'hover:bg-white/10'
@@ -221,12 +318,11 @@ export default function Messages() {
                 )}
               </div>
             </div>
-
-            {/* Chat Area */}
-            {selectedConversation ? (
-              <div className={`${isMobile && isMobileMenuOpen ? 'hidden' : 'flex'} flex-1 flex-col h-full`}>
+            {/* Chat Area - Show when a conversation is selected */}
+              {selectedConversation ? (
+              <div className={`${isMobile && isMobileMenuOpen ? 'hidden' : 'flex'} flex-1 flex-col min-h-0`} style={{ minHeight: 0 }}>
                 {/* Chat Header */}
-                <div className="p-3 border-b border-white/10 bg-white/5 flex items-center justify-between">
+                <div className="p-3 border-b border-white/10 bg-white/5 flex items-center justify-between sticky top-0 z-10">
                   <div className="flex items-center gap-3">
                     {isMobile && (
                       <button 
@@ -268,11 +364,8 @@ export default function Messages() {
                   </div>
                 </div>
 
-                {/* Messages */}
-                <div 
-                  className="flex-1 p-2 sm:p-4 overflow-y-auto"
-                  style={{ maxHeight: 'calc(100vh - 200px)' }}
-                >
+                {/* Messages Container */}
+                <div className="flex-1 overflow-y-auto p-4">
                   {conversationMessages.length === 0 ? (
                     <div className="h-full flex flex-col items-center justify-center text-center p-4 sm:p-6">
                       <div className="w-12 h-12 sm:w-16 sm:h-16 rounded-full bg-purple-500/10 flex items-center justify-center mb-3 sm:mb-4">
@@ -287,7 +380,7 @@ export default function Messages() {
                     <div className="space-y-2 sm:space-y-3">
                       {conversationMessages.map((message) => (
                         <div
-                          key={message.id}
+                          key={message._id}
                           className={`flex ${
                             message.senderId === currentUserId ? 'justify-end' : 'justify-start'
                           }`}
@@ -314,7 +407,7 @@ export default function Messages() {
                 </div>
 
                 {/* Message Input */}
-                <div className="p-2 sm:p-3 border-t border-white/10 bg-slate-900/50">
+                <div className="p-2 sm:p-3 border-t border-white/10 bg-slate-900/50" style={{ flexShrink: 0 }}>
                   <div className="flex items-center gap-1 sm:gap-2">
                     <button className="p-1.5 sm:p-2 text-gray-400 hover:text-white">
                       <Paperclip className="w-4 h-4 sm:w-5 sm:h-5" />
@@ -327,6 +420,7 @@ export default function Messages() {
                         onChange={(e) => setMessageText(e.target.value)}
                         onKeyPress={(e) => e.key === 'Enter' && handleSendMessage()}
                         placeholder="Type a message..."
+                        aria-label="Type a message"
                         className="w-full text-sm sm:text-base bg-white/5 border border-white/10 rounded-full py-2 pl-3 sm:pl-4 pr-10 text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-purple-500 focus:border-transparent"
                       />
                       <button className="absolute right-2 top-1/2 transform -translate-y-1/2 text-gray-400 hover:text-white">
@@ -337,12 +431,12 @@ export default function Messages() {
                       <button
                         onClick={handleSendMessage}
                         disabled={!messageText.trim()}
-                        className="p-1.5 sm:p-2 rounded-full bg-purple-600 text-white hover:bg-purple-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                        className="p-1.5 sm:p-2 rounded-full bg-purple-600 text-white hover:bg-purple-700 disabled:opacity-50 disabled:cursor-not-allowed"
                       >
                         <Send className="w-4 h-4 sm:w-5 sm:h-5" />
                       </button>
                     ) : (
-                      <button className="p-1.5 sm:p-2 text-gray-400 hover:text-white">
+                      <button className="p-1.5 sm:p-2 text-gray-400">
                         <Mic className="w-4 h-4 sm:w-5 sm:h-5" />
                       </button>
                     )}
@@ -350,19 +444,53 @@ export default function Messages() {
                 </div>
               </div>
             ) : (
-              <div className="hidden md:flex flex-1 items-center justify-center bg-gradient-to-br from-slate-900 via-purple-900/20 to-slate-900">
-                <div className="text-center p-6 max-w-md">
-                  <div className="w-16 h-16 mx-auto mb-4 rounded-full bg-purple-500/10 flex items-center justify-center">
-                    <MessageCircle className="w-8 h-8 text-purple-400" />
+              <div className="hidden md:flex flex-1 flex-col min-h-0 bg-gradient-to-br from-slate-900 via-purple-900/20 to-slate-900">
+                <div className="flex-1 flex items-center justify-center">
+                  <div className="text-center p-6 max-w-md">
+                    <div className="w-16 h-16 mx-auto mb-4 rounded-full bg-purple-500/10 flex items-center justify-center">
+                      <MessageCircle className="w-8 h-8 text-purple-400" />
+                    </div>
+                    <h2 className="text-xl font-bold text-white mb-2">Select a conversation</h2>
+                    <p className="text-gray-400 text-sm">
+                      Choose an existing conversation or start a new one from a developer's profile
+                    </p>
                   </div>
-                  <h2 className="text-xl font-bold text-white mb-2">Select a conversation</h2>
-                  <p className="text-gray-400 text-sm">
-                    Choose an existing conversation or start a new one from a developer's profile
-                  </p>
                 </div>
+                
+                {/* Message Input - Only show when a conversation is selected */}
+                {selectedConversation && (
+                  <div className="p-2 sm:p-3 border-t border-white/10 bg-slate-900/50">
+                    <div className="flex items-center gap-1 sm:gap-2">
+                      <button className="p-1.5 sm:p-2 text-gray-400 hover:text-white">
+                        <Paperclip className="w-4 h-4 sm:w-5 sm:h-5" />
+                      </button>
+                      <div className="flex-1 relative">
+                        <input
+                          ref={inputRef}
+                          type="text"
+                          value={messageText}
+                          onChange={(e) => setMessageText(e.target.value)}
+                          onKeyPress={(e) => e.key === 'Enter' && handleSendMessage()}
+                          placeholder="Type a message..."
+                          className="w-full bg-white/10 border border-white/20 rounded-full py-2 pl-4 pr-10 text-white text-sm focus:outline-none focus:ring-2 focus:ring-purple-500 focus:border-transparent"
+                        />
+                        <button className="absolute right-2 top-1/2 transform -translate-y-1/2 text-gray-400 hover:text-white">
+                          <Smile className="w-4 h-4 sm:w-5 sm:h-5" />
+                        </button>
+                      </div>
+                      <button 
+                        onClick={handleSendMessage}
+                        disabled={!messageText.trim()}
+                        className={`p-1.5 sm:p-2 rounded-full ${messageText.trim() ? 'text-white bg-purple-600' : 'text-gray-500'}`}
+                      >
+                        <Send className="w-4 h-4 sm:w-5 sm:h-5" />
+                      </button>
+                    </div>
+                  </div>
+                )}
               </div>
             )}
-          </div>
+          </main>
         </div>
       </AuthenticatedRoute>
     </>

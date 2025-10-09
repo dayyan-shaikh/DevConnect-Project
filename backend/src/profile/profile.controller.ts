@@ -81,33 +81,76 @@ export class ProfileController {
     @UploadedFile() file: Express.Multer.File,
     @Request() req: any,
   ) {
-    if (!file) throw new BadRequestException('No file provided');
+    try {
+      console.log('Uploading avatar for profile:', profile_id);
+      console.log('File received:', file?.originalname, 'Size:', file?.size);
 
-    const profile = await this.profileService.getProfile(profile_id);
-    if (!profile) throw new BadRequestException('Profile not found');
-    
-    if (profile.user_id !== req.user.userId) {
-      throw new UnauthorizedException('You can only update your own profile picture');
+      if (!file) {
+        console.error('No file provided in request');
+        throw new BadRequestException('No file provided');
+      }
+
+      console.log('Fetching profile...');
+      const profile = await this.profileService.getProfile(profile_id);
+      if (!profile) {
+        console.error('Profile not found:', profile_id);
+        throw new BadRequestException('Profile not found');
+      }
+      
+      console.log('Verifying user ownership...');
+      console.log('Profile user_id:', profile.user_id, typeof profile.user_id);
+      console.log('Request user ID:', req.user?.userId, typeof req.user?.userId);
+      
+      if (profile.user_id.toString() !== req.user?.userId?.toString()) {
+        console.error('Unauthorized access attempt:', {
+          profileUserId: profile.user_id,
+          requestUserId: req.user?.userId
+        });
+        throw new UnauthorizedException('You can only update your own profile picture');
+      }
+
+      if (profile.avatarPublicId) {
+        console.log('Deleting old avatar:', profile.avatarPublicId);
+        try {
+          await this.cloudinaryService.delete(profile.avatarPublicId);
+          console.log('Successfully deleted old avatar');
+        } catch (deleteError) {
+          console.error('Error deleting old avatar, continuing with upload:', deleteError);
+        }
+      }
+
+      console.log('Uploading new avatar to Cloudinary...');
+      const uploadOptions = {
+        folder: 'devconnect/avatars',
+        public_id: `profile_${profile_id}`,
+      };
+      console.log('Upload options:', uploadOptions);
+      
+      const uploadResult = await this.cloudinaryService.uploadImageFromBuffer(
+        file.buffer,
+        uploadOptions
+      );
+      console.log('Cloudinary upload successful:', uploadResult?.secure_url);
+
+      console.log('Updating profile with new avatar...');
+      const updatedProfile = await this.profileService.updateAvatar(
+        profile_id,
+        uploadResult.secure_url,
+        uploadResult.public_id,
+      );
+      console.log('Profile updated successfully');
+
+      return {
+        message: 'Avatar uploaded successfully!',
+        avatarUrl: uploadResult.secure_url,
+        profile: updatedProfile,
+      };
+    } catch (error) {
+      console.error('Error in uploadAvatar:', error);
+      if (error instanceof BadRequestException || error instanceof UnauthorizedException) {
+        throw error;
+      }
+      throw new Error('Failed to upload avatar. Please try again.');
     }
-
-    if (profile.avatarPublicId) {
-      await this.cloudinaryService.delete(profile.avatarPublicId).catch(() => null);
-    }
-    const uploadResult = await this.cloudinaryService.uploadImageFromBuffer(file.buffer, {
-      folder: 'devconnect/avatars',
-      public_id: `profile_${profile_id}`,
-    });
-
-    const updatedProfile = await this.profileService.updateAvatar(
-      profile_id,
-      uploadResult.secure_url,
-      uploadResult.public_id,
-    );
-
-    return {
-      message: 'Avatar uploaded successfully!',
-      avatarUrl: uploadResult.secure_url,
-      profile: updatedProfile,
-    };
   }
 }

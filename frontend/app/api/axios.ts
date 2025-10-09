@@ -1,8 +1,18 @@
 import axios from "axios";
 import type { AxiosInstance } from "axios";
 
+// Determine the base URL based on the environment
+const getBaseUrl = () => {
+  // In production, use VITE_API_URL_PRODUCTION if it exists, otherwise fall back to VITE_API_URL
+  if (import.meta.env.PROD) {
+    return import.meta.env.VITE_API_URL_PRODUCTION || import.meta.env.VITE_API_URL || "http://localhost:3000";
+  }
+  // In development, use VITE_API_URL or fall back to localhost
+  return import.meta.env.VITE_API_URL || "http://localhost:3000";
+};
+
 export const axiosInstance: AxiosInstance = axios.create({
-  baseURL: import.meta.env.VITE_WEBSOCKET_URL || "http://localhost:3000", // NestJS backend
+  baseURL: getBaseUrl(),
   headers: {
     "Content-Type": "application/json",
   },
