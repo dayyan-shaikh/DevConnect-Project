@@ -3,7 +3,6 @@
 import React, { createContext, useContext, useEffect, useRef, useCallback } from 'react';
 import type { ReactNode } from 'react';
 import { io, Socket } from 'socket.io-client';
-import type { AppSocket } from '../types/socket';
 
 interface WebSocketMessage {
   type: string;

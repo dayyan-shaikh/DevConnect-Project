@@ -2,7 +2,7 @@ import axios from "axios";
 import type { AxiosInstance } from "axios";
 
 export const axiosInstance: AxiosInstance = axios.create({
-  baseURL: "https://devconnect-project.onrender.com", // NestJS backend
+  baseURL: import.meta.env.VITE_WEBSOCKET_URL || "http://localhost:3000", // NestJS backend
   headers: {
     "Content-Type": "application/json",
   },
