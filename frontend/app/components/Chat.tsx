@@ -31,33 +31,55 @@ export function Chat({ userId, otherUser, onClose }: ChatProps): React.ReactElem
 
   // Handle WebSocket messages
   useEffect(() => {
-    if (socket?.socket) {
-      // Set up message handler
-      const handleMessage = (event: MessageEvent) => {
-        try {
-          const message = JSON.parse(event.data);
-          if (message.type === 'chat_message') {
-            setMessages(prev => [...prev, message.data]);
-          }
-        } catch (error) {
-          console.error('Error parsing message:', error);
+    const socketInstance = socket?.socket as unknown as {
+      addEventListener?: (event: string, handler: (event: MessageEvent | any) => void) => void;
+      removeEventListener?: (event: string, handler: (event: MessageEvent | any) => void) => void;
+      on?: (event: string, handler: (data: any) => void) => void;
+      off?: (event: string, handler: (data: any) => void) => void;
+    } | undefined;
+
+    if (!socketInstance) return;
+
+    const handleMessage = (event: MessageEvent | any) => {
+      try {
+        const rawMessage = typeof event === 'object' && 'data' in event ? event.data : event;
+        const message = typeof rawMessage === 'string' ? JSON.parse(rawMessage) : rawMessage;
+
+        if (message?.type === 'chat_message') {
+          setMessages(prev => [...prev, message.data]);
         }
-      };
+      } catch (error) {
+        console.error('Error parsing message:', error);
+      }
+    };
 
-      // Add event listener
-      socket.socket.addEventListener('message', handleMessage);
+    if (typeof socketInstance.addEventListener === 'function') {
+      socketInstance.addEventListener('message', handleMessage as EventListener);
 
-      // Send identify message
-      if (socket.isConnected) {
-        socket.socket.send(JSON.stringify({
+      if (socket?.isConnected) {
+        socket.sendMessage(JSON.stringify({
           type: 'identify',
           userId
         }));
       }
 
-      // Clean up
       return () => {
-        socket.socket?.removeEventListener('message', handleMessage);
+        socketInstance.removeEventListener?.('message', handleMessage as EventListener);
+      };
+    }
+
+    if (typeof socketInstance.on === 'function') {
+      socketInstance.on('message', handleMessage);
+
+      if (socket?.isConnected) {
+        socket.sendMessage(JSON.stringify({
+          type: 'identify',
+          userId
+        }));
+      }
+
+      return () => {
+        socketInstance.off?.('message', handleMessage);
       };
     }
   }, [socket, userId]);
